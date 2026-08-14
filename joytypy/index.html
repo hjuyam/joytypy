@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="敲敲乐 - 小学拼音打字练习">
+  <title>敲敲乐 · 拼音打字练习</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部导航栏（全局） -->
+    <header class="topbar" id="topbar">
+      <div class="topbar-left">
+        <span class="logo" title="敲敲乐">🎹 敲敲乐</span>
+      </div>
+      <div class="topbar-center" id="topbar-progress" hidden>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <span class="progress-text" id="progress-text">0 / 0</span>
+      </div>
+      <div class="topbar-right">
+        <span class="combo-badge" id="combo-badge" hidden>🔥 连击 <b id="combo-num">0</b></span>
+        <button class="icon-btn" id="current-profile-btn" title="切换档案">
+          <span id="current-avatar">😊</span>
+          <span id="current-name">小朋友</span>
+        </button>
+        <button class="icon-btn" id="settings-btn" title="设置">⚙️</button>
+      </div>
+    </header>
+
+    <main id="view-container">
+      <!-- ============ 首页 #/home ============ -->
+      <section class="view" id="view-home" data-route="home">
+        <!-- 档案切换区 -->
+        <div class="section">
+          <h2 class="section-title">选择小朋友</h2>
+          <div class="profile-list" id="profile-list"></div>
+          <button class="btn btn-outline" id="add-profile-btn">➕ 新建档案</button>
+        </div>
+
+        <!-- 课文列表区 -->
+        <div class="section">
+          <h2 class="section-title">选择课文</h2>
+          <div class="lesson-grid" id="lesson-grid">
+            <div class="loading-hint">课文加载中…</div>
+          </div>
+        </div>
+
+        <!-- 成就墙预览 -->
+        <div class="section">
+          <h2 class="section-title">我的成就</h2>
+          <div class="achievement-preview" id="achievement-preview">
+            <div class="ach-card"><span class="ach-icon">⭐</span><span class="ach-num" id="total-stars">0</span><span class="ach-label">星星</span></div>
+            <div class="ach-card"><span class="ach-icon">🌸</span><span class="ach-num" id="total-flowers">0</span><span class="ach-label">小红花</span></div>
+            <div class="ach-card"><span class="ach-icon">🏅</span><span class="ach-num" id="total-badges">0</span><span class="ach-label">徽章</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 练习页 #/practice ============ -->
+      <section class="view" id="view-practice" data-route="practice" hidden>
+        <!-- 课文上下文区 -->
+        <div class="context-area" id="context-area"></div>
+
+        <!-- 当前字卡片 -->
+        <div class="current-char-card" id="current-char-card">
+          <div class="char-pinyin" id="char-pinyin">mā</div>
+          <div class="char-hanzi" id="char-hanzi">妈</div>
+          <div class="char-typed" id="char-typed"></div>
+        </div>
+
+        <!-- 错误提示 -->
+        <div class="error-hint" id="error-hint" hidden>再试试看～</div>
+
+        <!-- 模拟键盘区 -->
+        <div class="keyboard-area" id="keyboard-area"></div>
+      </section>
+
+      <!-- ============ 完成页 #/complete ============ -->
+      <section class="view" id="view-complete" data-route="complete" hidden>
+        <div class="complete-card">
+          <div class="badge-pop" id="badge-pop">🏅</div>
+          <h2 class="complete-title" id="complete-title">诗词小达人！</h2>
+          <div class="complete-stats">
+            <div class="stat-item">
+              <svg class="accuracy-ring" viewBox="0 0 80 80"><circle cx="40" cy="40" r="34" class="ring-bg"/><circle cx="40" cy="40" r="34" class="ring-fg" id="accuracy-ring"/></svg>
+              <span class="stat-num" id="stat-accuracy">0%</span>
+              <span class="stat-label">正确率</span>
+            </div>
+            <div class="stat-item"><span class="stat-num" id="stat-duration">0s</span><span class="stat-label">用时</span></div>
+            <div class="stat-item"><span class="stat-num" id="stat-flowers">0</span><span class="stat-label">🌸 小红花</span></div>
+            <div class="stat-item"><span class="stat-num" id="stat-stars">0</span><span class="stat-label">⭐ 星星</span></div>
+          </div>
+          <div class="complete-actions">
+            <button class="btn btn-primary" id="retry-btn">再练一次</button>
+            <button class="btn btn-outline" id="back-home-btn">返回首页</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 家长报告 #/report ============ -->
+      <section class="view" id="view-report" data-route="report" hidden>
+        <div class="section">
+          <h2 class="section-title">本周概览</h2>
+          <div class="report-overview" id="report-overview">
+            <div class="report-card"><span class="report-num" id="week-chars">0</span><span class="report-label">练习汉字数</span></div>
+            <div class="report-card"><span class="report-num" id="week-completion">0%</span><span class="report-label">平均完成率</span></div>
+            <div class="report-card"><span class="report-num" id="week-accuracy">0%</span><span class="report-label">平均正确率</span></div>
+          </div>
+        </div>
+        <div class="section">
+          <h2 class="section-title">正确率趋势</h2>
+          <div class="trend-chart" id="trend-chart"></div>
+        </div>
+        <div class="section">
+          <h2 class="section-title">成就与累计奖励</h2>
+          <div class="reward-list" id="reward-list"></div>
+        </div>
+        <div class="section report-actions">
+          <button class="btn btn-outline" id="export-btn">📄 导出报告</button>
+          <button class="btn btn-outline" id="print-btn">🖨️ 打印</button>
+          <button class="btn btn-danger" id="clear-data-btn">🗑️ 清除当前档案数据</button>
+        </div>
+      </section>
+
+      <!-- ============ 设置 #/settings ============ -->
+      <section class="view" id="view-settings" data-route="settings" hidden>
+        <div class="section">
+          <h2 class="section-title">难度提示</h2>
+          <div class="option-cards" id="hint-level-options">
+            <button class="option-card" data-value="always"><span class="opt-icon">💡</span><span class="opt-title">常亮提示</span><span class="opt-desc">始终高亮目标键</span></button>
+            <button class="option-card" data-value="onError"><span class="opt-icon">🔍</span><span class="opt-title">仅错误时</span><span class="opt-desc">连错才提示</span></button>
+            <button class="option-card" data-value="off"><span class="opt-icon">🚫</span><span class="opt-title">关闭提示</span><span class="opt-desc">自己找键位</span></button>
+          </div>
+        </div>
+        <div class="section">
+          <h2 class="section-title">音效</h2>
+          <label class="toggle-row">
+            <span>按键音效</span>
+            <span class="toggle"><input type="checkbox" id="sound-toggle"><span class="toggle-slider"></span></span>
+          </label>
+        </div>
+        <div class="section">
+          <h2 class="section-title">默认练习模式</h2>
+          <div class="option-cards" id="default-mode-options">
+            <button class="option-card" data-value="key"><span class="opt-icon">⌨️</span><span class="opt-title">键位启蒙</span><span class="opt-desc">仅显示当前字母</span></button>
+            <button class="option-card" data-value="pinyin"><span class="opt-icon">🔤</span><span class="opt-title">拼音双练</span><span class="opt-desc">汉字 + 拼音</span></button>
+            <button class="option-card" data-value="reading"><span class="opt-icon">📖</span><span class="opt-title">识字诵读</span><span class="opt-desc">课文上下文</span></button>
+          </div>
+        </div>
+        <div class="section">
+          <button class="btn btn-danger" id="clear-profile-btn">🗑️ 清除当前档案数据</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- 底部导航 -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <button class="nav-btn active" data-route="home">🏠<span>首页</span></button>
+      <button class="nav-btn" data-route="report">📊<span>报告</span></button>
+      <button class="nav-btn" data-route="settings">⚙️<span>设置</span></button>
+    </nav>
+  </div>
+
+  <!-- ============ 多音字校对面板（模态） ============ -->
+  <div class="modal-overlay" id="poly-modal" hidden>
+    <div class="modal-card">
+      <h2 class="modal-title">这篇课文有 <span id="poly-count">0</span> 个多音字，请确认读音</h2>
+      <div class="poly-list" id="poly-list"></div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="poly-default-btn">全部使用默认音</button>
+        <button class="btn btn-primary" id="poly-confirm-btn">确认并开始</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 通用确认弹窗 ============ -->
+  <div class="modal-overlay" id="confirm-modal" hidden>
+    <div class="modal-card modal-sm">
+      <h2 class="modal-title" id="confirm-title">确认操作</h2>
+      <p class="confirm-msg" id="confirm-msg"></p>
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="confirm-cancel">取消</button>
+        <button class="btn btn-danger" id="confirm-ok">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 新建档案弹窗 ============ -->
+  <div class="modal-overlay" id="profile-modal" hidden>
+    <div class="modal-card modal-sm">
+      <h2 class="modal-title" id="profile-modal-title">新建档案</h2>
+      <label class="form-row"><span>昵称</span><input type="text" id="profile-name-input" maxlength="8" placeholder="如：小明"></label>
+      <label class="form-row"><span>头像</span><div class="avatar-picker" id="avatar-picker"></div></label>
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="profile-cancel">取消</button>
+        <button class="btn btn-primary" id="profile-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 奖励浮层 ============ -->
+  <div class="reward-overlay" id="reward-overlay" hidden>
+    <div class="reward-star" id="reward-star">⭐</div>
+    <div class="reward-flower" id="reward-flower" hidden>🌸</div>
+  </div>
+
+  <!-- ============ 连击撒花特效 ============ -->
+  <div class="confetti" id="confetti" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
