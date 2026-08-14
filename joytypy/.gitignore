@@ -1,0 +1,13 @@
+# 运行时文件
+server.pid
+
+# 依赖
+node_modules/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 编辑器
+.vscode/
+.idea/
