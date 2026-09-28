@@ -4,9 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="敲敲乐 - 小学拼音打字练习">
+  <meta name="theme-color" content="#fff8ee">
   <title>敲敲乐 · 拼音打字练习</title>
+  <link rel="icon" href="data:,">
+  <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
 </head>
 <body>
   <div id="app">
@@ -42,6 +44,11 @@
         <!-- 课文列表区 -->
         <div class="section">
           <h2 class="section-title">选择课文</h2>
+          <div class="lesson-tools">
+            <button class="btn btn-outline" id="import-lessons-btn">📥 导入课文</button>
+            <span class="lesson-tools-hint">支持 .txt、.md，可一次选择多篇；课文只保存在当前浏览器</span>
+            <input id="lesson-files" type="file" accept=".txt,.md,text/plain,text/markdown" multiple hidden>
+          </div>
           <div class="lesson-grid" id="lesson-grid">
             <div class="loading-hint">课文加载中…</div>
           </div>
@@ -60,14 +67,15 @@
 
       <!-- ============ 练习页 #/practice ============ -->
       <section class="view" id="view-practice" data-route="practice" hidden>
-        <!-- 课文上下文区 -->
-        <div class="context-area" id="context-area"></div>
-
-        <!-- 当前字卡片 -->
-        <div class="current-char-card" id="current-char-card">
-          <div class="char-pinyin" id="char-pinyin">mā</div>
-          <div class="char-hanzi" id="char-hanzi">妈</div>
-          <div class="char-typed" id="char-typed"></div>
+        <!-- 整句与当前字共用一张卡片，标点与换行保留 -->
+        <div class="verse-panel">
+          <div class="verse-label">跟着诗句，敲到高亮的字</div>
+          <div class="context-area" id="context-area"></div>
+          <div class="current-char-card" id="current-char-card">
+            <div class="char-pinyin" id="char-pinyin">mā</div>
+            <div class="char-hanzi" id="char-hanzi">妈</div>
+            <div class="char-typed" id="char-typed"></div>
+          </div>
         </div>
 
         <!-- 错误提示 -->
@@ -86,7 +94,7 @@
             <div class="stat-item">
               <svg class="accuracy-ring" viewBox="0 0 80 80"><circle cx="40" cy="40" r="34" class="ring-bg"/><circle cx="40" cy="40" r="34" class="ring-fg" id="accuracy-ring"/></svg>
               <span class="stat-num" id="stat-accuracy">0%</span>
-              <span class="stat-label">正确率</span>
+              <span class="stat-label">按键正确率</span>
             </div>
             <div class="stat-item"><span class="stat-num" id="stat-duration">0s</span><span class="stat-label">用时</span></div>
             <div class="stat-item"><span class="stat-num" id="stat-flowers">0</span><span class="stat-label">🌸 小红花</span></div>
@@ -105,12 +113,13 @@
           <h2 class="section-title">本周概览</h2>
           <div class="report-overview" id="report-overview">
             <div class="report-card"><span class="report-num" id="week-chars">0</span><span class="report-label">练习汉字数</span></div>
-            <div class="report-card"><span class="report-num" id="week-completion">0%</span><span class="report-label">平均完成率</span></div>
-            <div class="report-card"><span class="report-num" id="week-accuracy">0%</span><span class="report-label">平均正确率</span></div>
+            <div class="report-card"><span class="report-num" id="week-completion">—</span><span class="report-label">当前课文平均完成率</span></div>
+            <div class="report-card"><span class="report-num" id="week-accuracy">—</span><span class="report-label">按键正确率</span></div>
+            <div class="report-card"><span class="report-num" id="week-first-try">—</span><span class="report-label">单字首次敲对率</span></div>
           </div>
         </div>
         <div class="section">
-          <h2 class="section-title">正确率趋势</h2>
+          <h2 class="section-title">按键正确率趋势</h2>
           <div class="trend-chart" id="trend-chart"></div>
         </div>
         <div class="section">
@@ -144,9 +153,18 @@
         <div class="section">
           <h2 class="section-title">默认练习模式</h2>
           <div class="option-cards" id="default-mode-options">
-            <button class="option-card" data-value="key"><span class="opt-icon">⌨️</span><span class="opt-title">键位启蒙</span><span class="opt-desc">仅显示当前字母</span></button>
-            <button class="option-card" data-value="pinyin"><span class="opt-icon">🔤</span><span class="opt-title">拼音双练</span><span class="opt-desc">汉字 + 拼音</span></button>
-            <button class="option-card" data-value="reading"><span class="opt-icon">📖</span><span class="opt-title">识字诵读</span><span class="opt-desc">课文上下文</span></button>
+            <button class="option-card" data-value="key"><span class="opt-icon">⌨️</span><span class="opt-title">键位启蒙</span><span class="opt-desc">诗句 + 当前字母</span></button>
+            <button class="option-card" data-value="pinyin"><span class="opt-icon">🔤</span><span class="opt-title">拼音双练</span><span class="opt-desc">诗句 + 汉字拼音</span></button>
+            <button class="option-card" data-value="reading"><span class="opt-icon">📖</span><span class="opt-title">识字诵读</span><span class="opt-desc">跟读整句</span></button>
+          </div>
+        </div>
+        <div class="section">
+          <h2 class="section-title">数据备份</h2>
+          <p class="storage-hint">档案、练习记录和导入的课文保存在当前浏览器。换设备或清理浏览器数据前，请先导出备份。</p>
+          <div class="backup-actions">
+            <button class="btn btn-outline" id="backup-export-btn">⬇️ 导出全部数据</button>
+            <button class="btn btn-outline" id="backup-import-btn">⬆️ 导入备份</button>
+            <input id="backup-file" type="file" accept=".json,application/json" hidden>
           </div>
         </div>
         <div class="section">
@@ -164,9 +182,19 @@
   </div>
 
   <!-- ============ 多音字校对面板（模态） ============ -->
+  <div class="modal-overlay" id="resume-modal" hidden>
+    <div class="modal-card modal-sm">
+      <h2 class="modal-title">继续上次练习？</h2>
+      <p>已完成 <span id="resume-progress"></span> 字。可以接着练，也可以从头开始。</p>
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="resume-restart">从头开始</button>
+        <button class="btn btn-primary" id="resume-continue">继续</button>
+      </div>
+    </div>
+  </div>
   <div class="modal-overlay" id="poly-modal" hidden>
     <div class="modal-card">
-      <h2 class="modal-title">这篇课文有 <span id="poly-count">0</span> 个多音字，请确认读音</h2>
+      <h2 class="modal-title">本段有 <span id="poly-count">0</span> 处多音字，请确认读音</h2>
       <div class="poly-list" id="poly-list"></div>
       <div class="modal-actions">
         <button class="btn btn-outline" id="poly-default-btn">全部使用默认音</button>

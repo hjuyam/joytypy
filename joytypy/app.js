@@ -6,11 +6,12 @@
 import { PracticeSession, PracticeState, PracticeMode } from './practice.js';
 import { Keyboard } from './keyboard.js';
 import { generateReport, exportReport } from './report.js';
+import { creditCharacter, awardFirstCompletion } from './accounting.js';
+import { addImportedLesson, createBackup, getImportedLessons, restoreBackup, validateBackup } from './portable-data.js';
 
 // ============ 常量 ============
 const SCHEMA_VERSION = 1;
 const AVATARS = ['😊','🐱','🐶','🐰','🦊','🐼','🐯','🦁','🐸','🐵','🦄','🌟'];
-const BADGE_TITLES = ['诗词小达人','拼音小能手','键盘小勇士','识字小博士','连击之王'];
 
 // ============ 存储层（localStorage，按 profile 命名空间隔离） ============
 const Store = {
@@ -36,19 +37,37 @@ const Store = {
     localStorage.removeItem(`reward:${id}`);
     localStorage.removeItem(`settings:${id}`);
     // 清除该 profile 所有 progress
-    const keys = Object.keys(localStorage).filter(k => k.startsWith(`progress:${id}:`));
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(`progress:${id}:`) || k === `activity:${id}`);
     keys.forEach(k => localStorage.removeItem(k));
+    // 同步从 profileIds 移除，保持存储层自洽
+    const ids = this.getProfileIds().filter(i => i !== id);
+    this.setProfileIds(ids);
   },
 
   getCurrentProfileId() { return localStorage.getItem('currentProfileId') || null; },
   setCurrentProfileId(id) { localStorage.setItem('currentProfileId', id); },
 
-  getProgress(profileId, lessonId) {
-    try { const p = JSON.parse(localStorage.getItem(`progress:${profileId}:${lessonId}`)); return p && p.v === 1 ? p : null; }
+  getProgress(profileId, lessonId, mode) {
+    try {
+      const current = localStorage.getItem(`progress:${profileId}:${lessonId}:${mode}`);
+      // 旧版未记录模式；只在默认的拼音双练中兼容，避免旧进度串到其他模式。
+      const legacy = mode === PracticeMode.PINYIN ? localStorage.getItem(`progress:${profileId}:${lessonId}`) : null;
+      const p = JSON.parse(current || legacy);
+      return p && p.v === 1 ? p : null;
+    }
     catch { return null; }
   },
-  setProgress(profileId, lessonId, p) {
-    localStorage.setItem(`progress:${profileId}:${lessonId}`, JSON.stringify({ ...p, v: 1, lastAt: Date.now() }));
+  setProgress(profileId, lessonId, mode, p) {
+    localStorage.setItem(`progress:${profileId}:${lessonId}:${mode}`, JSON.stringify({ ...p, v: 1, lastAt: Date.now() }));
+  },
+  getActivities(profileId) {
+    try { return JSON.parse(localStorage.getItem(`activity:${profileId}`)) || []; } catch { return []; }
+  },
+  saveActivity(profileId, item) {
+    const items = this.getActivities(profileId);
+    const i = items.findIndex(x => x.id === item.id);
+    if (i < 0) items.push(item); else items[i] = item;
+    localStorage.setItem(`activity:${profileId}`, JSON.stringify(items));
   },
 
   getReward(profileId) {
@@ -84,6 +103,11 @@ function fmtDuration(ms) {
   if (s < 60) return `${s}s`;
   return `${Math.floor(s/60)}m${s%60}s`;
 }
+function contentFingerprint(text) {
+  let h = 2166136261;
+  for (const c of text) h = Math.imul(h ^ c.codePointAt(0), 16777619);
+  return `${text.length}:${h >>> 0}`;
+}
 
 // ============ 主应用 ============
 class App {
@@ -94,6 +118,7 @@ class App {
     this.keyboard = null;       // Keyboard
     this.pendingPolyChars = []; // 待校对多音字
     this.polyChoices = {};      // 校对面板选择 { 字: 拼音 }
+    this.activityId = null;
     this.confirmCallback = null;
     this.selectedAvatar = AVATARS[0];
     this.editingProfileId = null;
@@ -107,7 +132,11 @@ class App {
     this.ensureProfile();
     await this.loadLessons();
     this.bindHashRoute();
+    if (this.currentRoute === 'practice' || this.currentRoute === 'complete') this.go('home');
     this.handleRoute();
+    if ('serviceWorker' in navigator && window.isSecureContext) {
+      navigator.serviceWorker.register('./service-worker.js').catch(e => console.warn('离线缓存未启用', e));
+    }
   }
 
   // ============ 全局事件绑定 ============
@@ -115,6 +144,11 @@ class App {
     $('current-profile-btn').addEventListener('click', () => this.go('home'));
     $('settings-btn').addEventListener('click', () => this.go('settings'));
     $('add-profile-btn').addEventListener('click', () => this.openProfileModal());
+    $('import-lessons-btn').addEventListener('click', () => $('lesson-files').click());
+    $('lesson-files').addEventListener('change', e => this.handleLessonFiles(e.target));
+    $('backup-export-btn').addEventListener('click', () => this.downloadBackup());
+    $('backup-import-btn').addEventListener('click', () => $('backup-file').click());
+    $('backup-file').addEventListener('change', e => this.handleBackupFile(e.target));
     $('retry-btn').addEventListener('click', () => this.startPractice(this.currentLesson));
     $('back-home-btn').addEventListener('click', () => this.go('home'));
     $('export-btn').addEventListener('click', () => this.handleExport());
@@ -194,15 +228,11 @@ class App {
       if (!p) continue;
       const reward = Store.getReward(id);
       const card = el('div', 'profile-card' + (id === currentId ? ' active' : ''));
-      card.innerHTML = `<span class="pf-avatar">${p.avatar}</span><span class="pf-name">${this.escape(p.name)}</span><span class="pf-stars">⭐${reward.totalStars}</span>`;
+      card.innerHTML = `<span class="pf-avatar">${p.avatar}</span><span class="pf-name">${this.escape(p.name)}</span><span class="pf-stars">⭐${reward.totalStars}</span><div class="pf-actions"><button class="pf-action-btn pf-edit-btn" title="编辑档案" aria-label="编辑档案">✎</button>${ids.length > 1 ? `<button class="pf-action-btn pf-del-btn" title="删除档案" aria-label="删除档案">🗑️</button>` : ''}</div>`;
       card.addEventListener('click', () => this.switchProfile(id));
-      // 长按删除（简化：双击删除）
-      let lastTap = 0;
-      card.addEventListener('click', () => {
-        const now = Date.now();
-        if (now - lastTap < 400 && ids.length > 1) this.confirmDeleteProfile(id);
-        lastTap = now;
-      });
+      card.querySelector('.pf-edit-btn').addEventListener('click', (e) => { e.stopPropagation(); this.openProfileModal(id); });
+      const delBtn = card.querySelector('.pf-del-btn');
+      if (delBtn) delBtn.addEventListener('click', (e) => { e.stopPropagation(); this.confirmDeleteProfile(id); });
       list.appendChild(card);
     }
     // 更新顶栏当前档案
@@ -262,50 +292,124 @@ class App {
     this.closeProfileModal();
     this.renderProfiles();
     this.renderHome();
+    this.renderAchievementPreview();
   }
 
   confirmDeleteProfile(id) {
     this.showConfirm('删除档案', '确定删除该档案及其所有进度？此操作不可恢复。', () => {
       Store.delProfile(id);
-      const ids = Store.getProfileIds().filter(i => i !== id);
-      Store.setProfileIds(ids);
+      const ids = Store.getProfileIds(); // 已由 delProfile 同步更新
       if (Store.getCurrentProfileId() === id) {
         Store.setCurrentProfileId(ids[0] || null);
       }
       if (ids.length === 0) { this.ensureProfile(); }
       this.renderProfiles();
       this.renderHome();
+      this.renderAchievementPreview();
     });
   }
 
   // ============ 课文加载 ============
   async loadLessons() {
-    try {
-      const res = await fetch('/api/lessons');
-      const data = await res.json();
-      this.lessons = (data.lessons || []).map(l => ({ id: l.id, title: l.title, charCount: l.charCount }));
-    } catch (e) {
-      console.error('加载课文失败', e);
-      this.lessons = [];
+    let list = [];
+    const localNode = location.hostname === '127.0.0.1' && location.port === '5173';
+    if (localNode) {
+      try {
+        const res = await fetch('./api/lessons');
+        if (!res.ok) throw new Error(`课文 API ${res.status}`);
+        const data = await res.json();
+        list = Array.isArray(data) ? data : (data.lessons || []);
+      } catch (e) { console.warn('本地课文接口不可用，改用内置目录', e); }
     }
+    if (!list.length) {
+      // HTTPS 静态托管没有 Node API，读取随应用发布的课程目录。
+      try {
+        const res = await fetch('./lessons/catalog.json');
+        if (!res.ok) throw new Error(`课程目录 ${res.status}`);
+        list = await res.json();
+      } catch (e) { console.error('加载内置课文失败', e); }
+    }
+    this.lessons = [
+      ...list.map(l => ({
+        id: l.id || l.name,
+        title: l.title || (l.name || l.id).replace(/\.(txt|md)$/i, ''),
+        charCount: l.charCount ?? l.chars ?? 0,
+      })),
+      ...getImportedLessons().map(({ id, title, charCount }) => ({ id, title, charCount, imported: true })),
+    ];
   }
 
   async fetchLessonContent(lessonId) {
-    const res = await fetch('/api/lessons/' + encodeURIComponent(lessonId));
+    if (lessonId.startsWith('imported:')) {
+      const lesson = getImportedLessons().find(l => l.id === lessonId);
+      if (!lesson) throw new Error('导入的课文已不在此浏览器中，请从备份恢复');
+      return lesson.text;
+    }
+    const url = lessonId.includes('/') ? null : './lessons/' + encodeURIComponent(lessonId);
+    if (!url) throw new Error('课文名称无效');
+    const res = await fetch(url);
     if (!res.ok) throw new Error('课文读取失败: ' + res.status);
     return await res.text();
+  }
+
+  async handleLessonFiles(input) {
+    const files = [...input.files];
+    input.value = '';
+    let added = 0;
+    const errors = [];
+    for (const file of files) {
+      try {
+        if (file.size > 256 * 1024) throw new Error('单篇课文不能超过 256 KB');
+        addImportedLesson(file.name, await file.text());
+        added++;
+      } catch (e) { errors.push(`${file.name}：${e.message}`); }
+    }
+    await this.loadLessons();
+    this.renderHome();
+    this.showConfirm('课文导入', `已处理 ${added} 篇课文。${errors.length ? '未导入：' + errors.join('；') : ''}`, () => {});
+  }
+
+  downloadBackup() {
+    const backup = createBackup();
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = el('a');
+    a.href = url;
+    a.download = `敲敲乐备份_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async handleBackupFile(input) {
+    const file = input.files[0];
+    input.value = '';
+    if (!file) return;
+    try {
+      if (file.size > 20 * 1024 * 1024) throw new Error('备份文件不能超过 20 MB');
+      const backup = JSON.parse(await file.text());
+      validateBackup(backup);
+      this.showConfirm('导入备份', '导入会覆盖同名档案和进度。确认后会先下载当前数据备份，再恢复所选文件。', () => {
+        try {
+          this.downloadBackup();
+          restoreBackup(backup);
+          window.location.reload();
+        } catch (e) { this.showConfirm('恢复失败', e.message, () => {}); }
+      });
+    } catch (e) { this.showConfirm('备份无效', e.message, () => {}); }
   }
 
   renderHome() {
     const grid = $('lesson-grid');
     grid.innerHTML = '';
     if (this.lessons.length === 0) {
-      grid.appendChild(el('div', 'empty-hint', '暂无课文，请把 .txt 或 .md 文件放入 lessons/ 文件夹'));
+      grid.appendChild(el('div', 'empty-hint', '暂无课文，请导入 .txt 或 .md 文件'));
       return;
     }
     const pid = Store.getCurrentProfileId();
     for (const lesson of this.lessons) {
-      const progress = pid ? Store.getProgress(pid, lesson.id) : null;
+      const progress = pid ? Store.getProgress(pid, lesson.id, Store.getSettings(pid).defaultMode) : null;
       const pct = progress?.completed ? 100 : (progress && lesson.charCount ? Math.round((progress.charIndex / lesson.charCount) * 100) : 0);
       const card = el('div', 'lesson-card');
       card.innerHTML = `
@@ -333,12 +437,23 @@ class App {
   async startPractice(lesson) {
     if (!lesson) return;
     this.currentLesson = lesson;
+    this.activityId = null;
+    this.lastActivityStats = null;
+    this.session = null;
+    if (this.keyboard) { this.keyboard.destroy(); this.keyboard = null; }
+    $('keyboard-area').innerHTML = '';
+    $('char-pinyin').textContent = '';
+    $('char-hanzi').textContent = '';
+    $('char-typed').textContent = '';
     const pid = Store.getCurrentProfileId();
     const settings = Store.getSettings(pid);
     this.go('practice');
 
     try {
       const text = await this.fetchLessonContent(lesson.id);
+      this.currentLessonFingerprint = contentFingerprint(text);
+      this.lessonWasCompleted = [PracticeMode.KEY, PracticeMode.PINYIN, PracticeMode.READING]
+        .some(mode => { const p = Store.getProgress(pid, lesson.id, mode); return p?.completed || p?.everCompleted; });
       this.session = new PracticeSession({
         mode: settings.defaultMode,
         hintLevel: settings.hintLevel,
@@ -346,7 +461,9 @@ class App {
         onInput: r => this.onSessionInput(r),
         onReward: r => this.onSessionReward(r),
       });
-      const result = this.session.load(text, {}, lesson.id);
+      const savedMeta = Store.getLessonMeta(lesson.id);
+      const overrides = savedMeta && (!savedMeta.fingerprint || savedMeta.fingerprint === this.currentLessonFingerprint) ? savedMeta.overrides : {};
+      const result = this.session.load(text, overrides || {}, lesson.id);
       if (result.state === PracticeState.EMPTY_LESSON) {
         this.showConfirm('提示', '这篇课文没有可练习的汉字。', () => this.go('home'));
       } else if (result.state === PracticeState.POLY_CHECK) {
@@ -354,7 +471,7 @@ class App {
       } else if (result.state === PracticeState.LOADING_FAILED) {
         this.showConfirm('错误', '课文加载失败：' + (result.error || '未知错误'), () => this.go('home'));
       } else if (result.state === PracticeState.PLAYING) {
-        this.beginPlaying();
+        this.offerResumeOrStart();
       }
     } catch (e) {
       console.error(e);
@@ -362,7 +479,10 @@ class App {
     }
   }
 
-  beginPlaying() {
+  beginPlaying(activityId = null) {
+    this.activityId = activityId || `a${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const stats = this.session.getStats();
+    this.lastActivityStats = { correctKeys: stats.correctKeys, wrongKeys: stats.totalErrors, completedChars: stats.totalCorrect, firstTryChars: stats.firstTryChars };
     this.setupKeyboard();
     this.renderContext();
     this.renderCurrentChar();
@@ -391,14 +511,14 @@ class App {
     const list = $('poly-list');
     list.innerHTML = '';
     for (const pc of polyChars) {
-      this.polyChoices[pc.char] = pc.candidates[0]; // 默认选第一个
+      this.polyChoices[pc.index] = pc.candidates[pc.defaultIdx];
       const row = el('div', 'poly-row');
-      row.innerHTML = `<span class="poly-char">${pc.char}</span>`;
+      row.innerHTML = `<span class="poly-char">${pc.char}</span><small>${this.escape(pc.context)}（第 ${pc.index + 1} 字）</small>`;
       const btns = el('div', 'poly-candidates');
       for (const cand of pc.candidates) {
-        const b = el('button', 'poly-btn' + (cand === pc.candidates[0] ? ' selected' : ''), cand);
+        const b = el('button', 'poly-btn' + (cand === pc.candidates[pc.defaultIdx] ? ' selected' : ''), cand);
         b.addEventListener('click', () => {
-          this.polyChoices[pc.char] = cand;
+          this.polyChoices[pc.index] = cand;
           btns.querySelectorAll('.poly-btn').forEach(x => x.classList.remove('selected'));
           b.classList.add('selected');
         });
@@ -414,13 +534,32 @@ class App {
     // 全部使用第一个候选（默认音）
     $('poly-modal').hidden = true;
     this.session.skipPolyCheck();
-    this.beginPlaying();
+    this.savePolyChoices(Object.fromEntries(this.pendingPolyChars.map(p => [p.index, p.candidates[p.defaultIdx]])));
+    if (!this.activityId) this.offerResumeOrStart(); else this.renderCurrentChar();
   }
 
   handlePolyConfirm() {
     $('poly-modal').hidden = true;
     this.session.confirmPolyCheck(this.polyChoices);
-    this.beginPlaying();
+    this.savePolyChoices(this.polyChoices);
+    if (!this.activityId) this.offerResumeOrStart(); else this.renderCurrentChar();
+  }
+
+  savePolyChoices(choices) {
+    const id = this.currentLesson.id;
+    const meta = Store.getLessonMeta(id) || {};
+    Store.setLessonMeta(id, { ...meta, fingerprint: this.currentLessonFingerprint, overrides: { ...meta.overrides, byIndex: { ...meta.overrides?.byIndex, ...choices } } });
+  }
+
+  offerResumeOrStart() {
+    const pid = Store.getCurrentProfileId();
+    const saved = Store.getProgress(pid, this.currentLesson.id, this.session.mode);
+    if (saved && (!saved.fingerprint || saved.fingerprint === this.currentLessonFingerprint) && !saved.completed && (saved.charIndex > 0 || saved.typedIndex > 0)) {
+      $('resume-modal').hidden = false;
+      $('resume-progress').textContent = `${saved.charIndex} / ${this.session.entries.length}`;
+      $('resume-continue').onclick = () => { $('resume-modal').hidden = true; this.session.resumeFromProgress(saved); this.beginPlaying(saved.activityId); };
+      $('resume-restart').onclick = () => { $('resume-modal').hidden = true; this.beginPlaying(); };
+    } else this.beginPlaying();
   }
 
   // ============ 输入处理（双通道统一） ============
@@ -432,12 +571,17 @@ class App {
     const pid = Store.getCurrentProfileId();
     const settings = Store.getSettings(pid);
 
+    if (result.charComplete) {
+      Store.setReward(pid, creditCharacter(Store.getReward(pid), !!result.reward?.flower));
+    }
+    this.recordActivity();
+
     if (result.correct) {
       if (settings.sound) this.playSound('correct');
       if (this.keyboard) this.keyboard.flashCorrect(key);
       if (result.charComplete) {
         this.renderContext();
-        if (result.finished) return; // 完成页由 onStateChange 处理
+        if (result.finished) { this.saveProgress(); this.handleComplete(); return; }
       }
       this.renderCurrentChar();
       const target = this.session.getCurrentTargetLetter();
@@ -457,11 +601,22 @@ class App {
     this.saveProgress();
   }
 
+  recordActivity() {
+    const stats = this.session.getStats();
+    const pid = Store.getCurrentProfileId();
+    const at = Date.now();
+    const id = `${this.activityId}:${getWeekKey(at)}`;
+    const old = Store.getActivities(pid).find(a => a.id === id) || {};
+    const next = { correctKeys: stats.correctKeys, wrongKeys: stats.totalErrors, completedChars: stats.totalCorrect, firstTryChars: stats.firstTryChars };
+    const item = { id, at, lessonId: this.currentLesson.id, mode: this.session.mode, completed: this.session.state === PracticeState.REWARD };
+    for (const [field, value] of Object.entries(next)) item[field] = (old[field] || 0) + Math.max(0, value - (this.lastActivityStats?.[field] || 0));
+    Store.saveActivity(pid, item);
+    this.lastActivityStats = next;
+  }
+
   // ============ 会话回调 ============
   onSessionStateChange(newState, oldState) {
-    if (newState === PracticeState.COMPLETE || newState === PracticeState.REWARD) {
-      this.handleComplete();
-    }
+    if (newState === PracticeState.POLY_CHECK && oldState === PracticeState.PLAYING) this.openPolyModal(this.session.getPendingPolyChars());
   }
 
   onSessionInput(result) {
@@ -477,37 +632,38 @@ class App {
   // ============ 渲染 ============
   renderContext() {
     const area = $('context-area');
-    area.innerHTML = '';
-    const entries = this.session.entries;
+    area.replaceChildren();
+    const passage = this.session.getCurrentPassage();
+    area.hidden = !passage;
+    if (!passage) return;
     const idx = this.session.currentEntryIndex;
-    // 显示当前字前后各 6 个字
-    const start = Math.max(0, idx - 6);
-    const end = Math.min(entries.length, idx + 7);
-    for (let i = start; i < end; i++) {
-      const e = entries[i];
+    let entryIndex = passage.start;
+    area.setAttribute('aria-label', `当前诗句：${passage.text.replace(/\s+/g, '')}`);
+    for (const c of passage.text) {
+      if (!/[一-龥]/.test(c)) {
+        area.appendChild(c === '\n' ? document.createElement('br') : document.createTextNode(c));
+        continue;
+      }
       const span = el('span', 'ctx-char');
-      if (e.skipped) span.classList.add('ctx-skipped');
-      else if (i < idx) span.classList.add('ctx-done');
-      else if (i === idx) span.classList.add('ctx-current');
-      span.textContent = e.char;
+      if (this.session.entries[entryIndex]?.skipped) span.classList.add('ctx-skipped');
+      else if (entryIndex < idx) span.classList.add('ctx-done');
+      else if (entryIndex === idx) { span.classList.add('ctx-current'); span.setAttribute('aria-current', 'true'); }
+      span.textContent = c;
       area.appendChild(span);
+      entryIndex++;
     }
-    // 滚动到当前字
-    const cur = area.querySelector('.ctx-current');
-    if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   }
 
   renderCurrentChar() {
     const entry = this.session.getCurrentEntry();
     if (!entry) return;
-    const settings = Store.getSettings(Store.getCurrentProfileId());
     const mode = this.session.mode;
 
     if (mode === PracticeMode.KEY) {
       // 键位启蒙：仅显示当前字母
       $('char-pinyin').textContent = '';
-      $('char-hanzi').textContent = '';
-      $('char-typed').textContent = (entry.spelling.slice(0, entry.typedIndex) + '▌').toUpperCase();
+      $('char-hanzi').textContent = (this.session.getCurrentTargetLetter() || '').toUpperCase();
+      $('char-typed').textContent = '';
     } else {
       $('char-pinyin').textContent = entry.toned || entry.spelling;
       $('char-hanzi').textContent = entry.char;
@@ -528,12 +684,26 @@ class App {
     if (!this.currentLesson) return;
     const pid = Store.getCurrentProfileId();
     const p = this.session.getProgress();
-    Store.setProgress(pid, this.currentLesson.id, {
+    const entry = this.session.getCurrentEntry();
+    const stats = this.session.getStats();
+    Store.setProgress(pid, this.currentLesson.id, this.session.mode, {
       charIndex: p.current,
+      typedIndex: entry?.typedIndex || 0,
+      currentErrors: entry?.errors || 0,
+      totalErrors: stats.totalErrors,
+      correctKeys: stats.correctKeys,
+      totalCorrect: stats.totalCorrect,
+      firstTryChars: stats.firstTryChars,
+      elapsedMs: stats.duration,
+      checkedSegments: [...this.session.checkedSegments],
+      activityId: this.activityId,
+      fingerprint: this.currentLessonFingerprint,
       stars: p.stars,
       flowers: p.flowers,
       combo: p.combo,
+      maxCombo: p.maxCombo,
       completed: this.session.state === PracticeState.REWARD || this.session.state === PracticeState.COMPLETE,
+      everCompleted: this.lessonWasCompleted || this.session.state === PracticeState.REWARD,
     });
   }
 
@@ -542,21 +712,11 @@ class App {
     const stats = this.session.getStats();
     const pid = Store.getCurrentProfileId();
 
-    // 更新奖励
-    const reward = Store.getReward(pid);
-    reward.totalStars += stats.stars;
-    reward.totalFlowers += stats.flowers;
-    // 徽章：根据完成次数颁发
-    const badgeCount = reward.badges.length;
-    const newBadgeIdx = badgeCount < BADGE_TITLES.length ? badgeCount : -1;
-    let newBadge = null;
-    if (newBadgeIdx >= 0) {
-      newBadge = { title: BADGE_TITLES[newBadgeIdx], icon: '🏅', awardedAt: Date.now() };
-      reward.badges.push(newBadge);
-    }
-    // 周维度统计
-    const wk = getWeekKey();
-    reward.weekly[wk] = (reward.weekly[wk] || 0) + stats.charCount;
+    // 奖励按每个完成字即时入账；完成这里只颁发本课文首次徽章。
+    const originalReward = Store.getReward(pid);
+    const { reward, badge: newBadge } = this.lessonWasCompleted
+      ? { reward: originalReward, badge: null }
+      : awardFirstCompletion(originalReward, this.currentLesson);
     Store.setReward(pid, reward);
 
     // 保存完成进度
@@ -665,19 +825,20 @@ class App {
     const pid = Store.getCurrentProfileId();
     const data = generateReport(pid, Store, this.lessons);
     $('week-chars').textContent = data.weekChars;
-    $('week-completion').textContent = data.weekCompletion + '%';
-    $('week-accuracy').textContent = data.weekAccuracy + '%';
+    $('week-completion').textContent = data.weekCompletion === null ? '暂无记录' : data.weekCompletion + '%';
+    $('week-accuracy').textContent = data.weekKeyAccuracy === null ? '暂无记录' : data.weekKeyAccuracy + '%';
+    $('week-first-try').textContent = data.weekFirstTryAccuracy === null ? '暂无记录' : data.weekFirstTryAccuracy + '%';
     // 趋势图
     const chart = $('trend-chart');
     chart.innerHTML = '';
-    if (data.trend.length === 0) {
+    if (data.trend.every(d => d.accuracy === null)) {
       chart.appendChild(el('div', 'empty-hint', '暂无练习数据'));
     } else {
-      const maxVal = Math.max(...data.trend.map(d => d.accuracy), 100);
+      const maxVal = 100;
       data.trend.forEach(d => {
         const bar = el('div', 'trend-bar');
-        const h = Math.round((d.accuracy / maxVal) * 100);
-        bar.innerHTML = `<div class="trend-fill" style="height:${h}%"></div><span class="trend-label">${d.accuracy}%</span><span class="trend-date">${d.label}</span>`;
+        const h = Math.round(((d.accuracy || 0) / maxVal) * 100);
+        bar.innerHTML = `<div class="trend-fill" style="height:${h}%"></div><span class="trend-label">${d.accuracy === null ? '—' : d.accuracy + '%'}</span><span class="trend-date">${d.label}</span>`;
         chart.appendChild(bar);
       });
     }
@@ -715,7 +876,7 @@ class App {
     this.showConfirm('清除数据', `确定清除「${profile.name}」的所有练习进度和奖励？此操作不可恢复。`, () => {
       const pid = profile.id;
       // 清除 progress
-      Object.keys(localStorage).filter(k => k.startsWith(`progress:${pid}:`)).forEach(k => localStorage.removeItem(k));
+      Object.keys(localStorage).filter(k => k.startsWith(`progress:${pid}:`) || k === `activity:${pid}`).forEach(k => localStorage.removeItem(k));
       Store.setReward(pid, { v: 1, totalStars: 0, totalFlowers: 0, badges: [], weekly: {} });
       this.renderHome();
       this.renderAchievementPreview();
@@ -791,6 +952,8 @@ class App {
   }
 }
 
-// 启动
-const app = new App();
-window.__app = app; // 调试用
+export { Store };
+if (typeof document !== 'undefined') {
+  const app = new App();
+  window.__app = app; // 本地调试与浏览器验收
+}

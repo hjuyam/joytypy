@@ -35,6 +35,7 @@ export class PracticeSession {
     this.onReward = options.onReward || (() => {});
 
     this.entries = [];
+    this.passages = [];
     this.polyChars = [];
     this.merged = {};
     this.currentEntryIndex = 0;
@@ -44,8 +45,13 @@ export class PracticeSession {
     this.flowers = 0;
     this.totalErrors = 0;
     this.totalCorrect = 0;
+    this.correctKeys = 0;
+    this.firstTryChars = 0;
+    this.segmentSize = options.segmentSize || 12;
+    this.checkedSegments = new Set();
     this.startTime = null;
     this.endTime = null;
+    this.priorDuration = 0;
     this.consecutiveErrors = 0;
     this.hintTriggered = false;
     this.lessonId = null;
@@ -66,6 +72,7 @@ export class PracticeSession {
     try {
       const result = buildSequence(text, panelOverride);
       this.entries = result.entries;
+      this.passages = result.passages;
       this.polyChars = result.polyChars;
       this.merged = result.merged;
       this.charCount = result.charCount;
@@ -79,9 +86,9 @@ export class PracticeSession {
       }
 
       // 检查多音字（有待校对的字）
-      if (this.polyChars.length > 0) {
+      if (this.polyChars.some(p => p.index < this.segmentSize)) {
         this.setState(PracticeState.POLY_CHECK);
-        return { state: this.state, polyChars: this.polyChars };
+        return { state: this.state, polyChars: this.getPendingPolyChars() };
       }
 
       // 无多音字，直接开始
@@ -96,25 +103,35 @@ export class PracticeSession {
 
   /**
    * 确认多音字校对结果，合并覆盖并开始练习
-   * @param {Object} override { 字: 去声调拼音 }
+   * @param {Object} override { 出现位置: 去声调拼音 }
    */
   confirmPolyCheck(override = {}) {
-    Object.assign(this.merged, override);
+    const segment = Math.floor(this.currentEntryIndex / this.segmentSize);
+    this.checkedSegments.add(segment);
     for (const entry of this.entries) {
-      if (override[entry.char]) {
-        entry.spelling = override[entry.char];
-        entry.toned = override[entry.char];
+      const choice = override[entry.index] || override[entry.char];
+      if (choice && !entry.completed) {
+        entry.spelling = choice;
+        entry.toned = choice;
         entry.skipped = !entry.spelling;
       }
     }
-    this.startPlaying();
+    if (this.startTime === null) this.startPlaying();
+    else this.setState(PracticeState.PLAYING);
   }
 
   /**
    * 跳过多音字校对（全部使用默认音），直接开始
    */
   skipPolyCheck() {
-    this.startPlaying();
+    this.checkedSegments.add(Math.floor(this.currentEntryIndex / this.segmentSize));
+    if (this.startTime === null) this.startPlaying();
+    else this.setState(PracticeState.PLAYING);
+  }
+
+  getPendingPolyChars() {
+    const start = Math.floor(this.currentEntryIndex / this.segmentSize) * this.segmentSize;
+    return this.polyChars.filter(p => p.index >= start && p.index < start + this.segmentSize);
   }
 
   /** 开始练习（PLAYING 状态） */
@@ -126,8 +143,11 @@ export class PracticeSession {
     this.flowers = 0;
     this.totalErrors = 0;
     this.totalCorrect = 0;
+    this.correctKeys = 0;
+    this.firstTryChars = 0;
     this.startTime = Date.now();
     this.endTime = null;
+    this.priorDuration = 0;
     this.consecutiveErrors = 0;
     this.hintTriggered = false;
     // 跳过开头无拼音的字（SKIP_CHAR）
@@ -149,6 +169,11 @@ export class PracticeSession {
   /** 获取当前正在练习的 entry */
   getCurrentEntry() {
     return this.entries[this.currentEntryIndex] || null;
+  }
+
+  getCurrentPassage() {
+    const index = Math.min(this.currentEntryIndex, this.entries.length - 1);
+    return this.passages.find(p => p.start <= index && index < p.end) || null;
   }
 
   /** 获取当前应敲的字母（小写） */
@@ -174,6 +199,7 @@ export class PracticeSession {
     if (keyLower === target) {
       // 正确
       entry.typedIndex++;
+      this.correctKeys++;
       this.consecutiveErrors = 0;
 
       // 检查该字是否完成
@@ -182,6 +208,8 @@ export class PracticeSession {
         this.combo++;
         this.maxCombo = Math.max(this.maxCombo, this.combo);
         this.totalCorrect++;
+        if (entry.errors === 0) this.firstTryChars++;
+        entry.completed = true;
 
         const reward = { star: true };
         if (this.combo > 0 && this.combo % this.comboThreshold === 0) {
@@ -197,12 +225,15 @@ export class PracticeSession {
         // 检查全篇完成
         if (this.currentEntryIndex >= this.entries.length) {
           this.endTime = Date.now();
-          this.setState(PracticeState.COMPLETE);
           this.setState(PracticeState.REWARD);
-          const result = { correct: true, charComplete: true, reward: { ...reward, badge: true }, finished: true };
-          this.onReward({ badge: true, stars: this.stars, flowers: this.flowers });
+          const result = { correct: true, charComplete: true, reward, finished: true };
           this.onInput(result);
           return result;
+        }
+
+        const segment = Math.floor(this.currentEntryIndex / this.segmentSize);
+        if (this.currentEntryIndex % this.segmentSize === 0 && !this.checkedSegments.has(segment) && this.getPendingPolyChars().length) {
+          this.setState(PracticeState.POLY_CHECK);
         }
 
         if (reward.flower) this.onReward(reward);
@@ -252,15 +283,18 @@ export class PracticeSession {
 
   /** 获取本篇统计（完成时调用） */
   getStats() {
-    const duration = this.endTime ? this.endTime - this.startTime : (this.startTime ? Date.now() - this.startTime : 0);
-    const totalAttempts = this.totalCorrect + this.totalErrors;
-    const accuracy = totalAttempts > 0 ? Math.round((this.totalCorrect / totalAttempts) * 100) : 0;
+    const duration = this.priorDuration + (this.endTime ? this.endTime - this.startTime : (this.startTime ? Date.now() - this.startTime : 0));
+    const totalAttempts = this.correctKeys + this.totalErrors;
+    const accuracy = totalAttempts > 0 ? Math.round((this.correctKeys / totalAttempts) * 100) : 0;
     return {
       stars: this.stars,
       flowers: this.flowers,
       maxCombo: this.maxCombo,
       totalErrors: this.totalErrors,
       totalCorrect: this.totalCorrect,
+      correctKeys: this.correctKeys,
+      firstTryChars: this.firstTryChars,
+      firstTryAccuracy: this.totalCorrect ? Math.round(this.firstTryChars / this.totalCorrect * 100) : 0,
       accuracy,
       duration,
       charCount: this.charCount
@@ -274,6 +308,19 @@ export class PracticeSession {
     this.stars = savedProgress.stars || 0;
     this.flowers = savedProgress.flowers || 0;
     this.combo = savedProgress.combo || 0;
+    this.maxCombo = savedProgress.maxCombo || this.combo;
+    this.totalErrors = savedProgress.totalErrors || 0;
+    this.correctKeys = savedProgress.correctKeys || 0;
+    this.totalCorrect = savedProgress.totalCorrect || 0;
+    this.firstTryChars = savedProgress.firstTryChars || 0;
+    this.priorDuration = savedProgress.elapsedMs || 0;
+    this.checkedSegments = new Set(savedProgress.checkedSegments || []);
+    for (let i = 0; i < this.currentEntryIndex; i++) this.entries[i].completed = true;
+    const current = this.entries[this.currentEntryIndex];
+    if (current) {
+      current.typedIndex = Math.min(savedProgress.typedIndex || 0, current.spelling.length - 1);
+      current.errors = savedProgress.currentErrors || 0;
+    }
     this.skipEmptyChars();
     if (this.currentEntryIndex < this.entries.length) {
       this.startTime = Date.now();
@@ -291,6 +338,7 @@ export class PracticeSession {
   reset() {
     this.state = PracticeState.IDLE;
     this.entries = [];
+    this.passages = [];
     this.polyChars = [];
     this.merged = {};
     this.currentEntryIndex = 0;
@@ -300,8 +348,11 @@ export class PracticeSession {
     this.flowers = 0;
     this.totalErrors = 0;
     this.totalCorrect = 0;
+    this.correctKeys = 0;
+    this.firstTryChars = 0;
     this.startTime = null;
     this.endTime = null;
+    this.priorDuration = 0;
     this.consecutiveErrors = 0;
     this.hintTriggered = false;
   }

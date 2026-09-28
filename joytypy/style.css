@@ -243,8 +243,25 @@ body {
 .pf-avatar { font-size: 32px; }
 .pf-name { font-size: 14px; font-weight: 700; }
 .pf-stars { font-size: 12px; color: var(--c-text-soft); }
+.pf-actions { display: flex; gap: 4px; margin-top: 6px; }
+.pf-action-btn {
+  border: none;
+  background: rgba(0,0,0,0.06);
+  border-radius: var(--radius-sm);
+  width: 26px; height: 26px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s;
+  line-height: 1;
+}
+.pf-action-btn:hover { background: rgba(0,0,0,0.16); }
+.pf-del-btn:hover { background: rgba(255,99,99,0.20); }
 
 /* ---------- 首页：课文网格 ---------- */
+.lesson-tools, .backup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
+.lesson-tools-hint, .storage-hint { color: var(--c-text-soft); font-size: 13px; line-height: 1.6; }
+.storage-hint { margin: 0 0 12px; }
 .lesson-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -327,57 +344,57 @@ body {
   flex-direction: column;
   gap: 16px;
 }
-.context-area {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 12px;
+.verse-panel {
   background: var(--c-bg-card);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  overflow-x: auto;
-  min-height: 60px;
-  flex-wrap: nowrap;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  padding: 18px 24px 16px;
+}
+.verse-label {
+  color: var(--c-text-soft);
+  font-size: 13px;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.context-area {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.9;
+  min-height: 54px;
+  overflow-wrap: anywhere;
 }
 .ctx-char {
-  font-size: 22px;
-  font-weight: 600;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  transition: all 0.2s;
-  flex-shrink: 0;
+  display: inline-block;
+  padding: 0 2px;
+  border-radius: 8px;
+  transition: color 0.2s, background-color 0.2s;
 }
-.ctx-done { color: var(--c-text-soft); opacity: 0.5; }
+.ctx-done { color: var(--c-success); }
 .ctx-current {
-  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-light));
+  background: var(--c-primary);
   color: #fff;
-  transform: scale(1.2);
   box-shadow: var(--shadow-md);
 }
-.ctx-skipped { opacity: 0.3; }
+.ctx-skipped { opacity: 0.4; }
 
 .current-char-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 30px 20px;
-  background: linear-gradient(135deg, var(--c-bg-card), var(--c-bg-soft));
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-md);
-  min-height: 180px;
-  position: relative;
+  gap: 2px;
+  padding-top: 10px;
+  min-height: 98px;
 }
 .char-pinyin {
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--c-primary);
   letter-spacing: 2px;
 }
 .char-hanzi {
-  font-size: 72px;
+  font-size: 52px;
   font-weight: 800;
   color: var(--c-text);
   line-height: 1.1;
@@ -389,12 +406,12 @@ body {
   100% { transform: scale(1); opacity: 1; }
 }
 .char-typed {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--c-success);
   letter-spacing: 3px;
   font-family: 'Courier New', monospace;
-  min-height: 30px;
+  min-height: 24px;
 }
 .error-hint {
   text-align: center;
@@ -413,20 +430,20 @@ body {
 .keyboard-area {
   background: var(--c-bg-card);
   border-radius: var(--radius-lg);
-  padding: 16px;
+  padding: 12px;
   box-shadow: var(--shadow-md);
 }
 .kb-row {
   display: flex;
   justify-content: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 .kb-row:last-child { margin-bottom: 0; }
 .kb-key {
   flex: 1;
   max-width: 64px;
-  min-height: 56px;
+  min-height: 50px;
   border: none;
   border-radius: var(--radius-md);
   background: linear-gradient(180deg, #fff, var(--c-bg-soft));
@@ -718,6 +735,9 @@ body {
   padding: 20px;
   animation: overlayIn 0.2s ease;
 }
+/* [hidden] 属性必须显式覆盖 display:flex/grid，否则隐藏的视图/弹窗仍会显示。
+   用 !important 保证优先级高于任何 #id { display:flex } 声明（如 #view-practice）。 */
+[hidden] { display: none !important; }
 @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
 .modal-card {
   background: var(--c-bg-card);
@@ -900,8 +920,11 @@ body {
   #current-name { display: none; }
   #view-container { padding: 12px; }
   .section { padding: 16px; }
-  .char-hanzi { font-size: 56px; }
+  .char-hanzi { font-size: 44px; }
   .char-pinyin { font-size: 22px; }
+  .verse-panel { padding: 14px 16px; }
+  .context-area { font-size: 23px; line-height: 1.8; }
+  .current-char-card { min-height: 90px; }
   .kb-key { min-height: 48px; font-size: 18px; max-width: 42px; }
   .lesson-grid { grid-template-columns: 1fr; }
   .complete-stats { gap: 8px; }

@@ -1,7 +1,48 @@
 // 练习状态机测试：正确前进、错误停留、SKIP_CHAR、整篇完成、LOADING_FAILED
+//
+// 防死循环说明：
+// 旧版测试使用 while (typedIndex < spelling.length) 循环驱动输入，
+// 当状态机误入 POLY_CHECK 等非 PLAYING 状态时 input() 返回 null，
+// typedIndex 不变导致同步死循环、CPU 满载。
+// 现改为基于 spelling 长度的有界 for 循环 + 每次断言返回值，
+// 状态异常时立即 fail-fast 而非无限循环。
 
 import { describe, it, expect } from 'vitest';
 import { PracticeSession, PracticeState, PracticeMode } from '../practice.js';
+
+/**
+ * 完成当前汉字的全部字母输入（防死循环核心辅助函数）。
+ *
+ * - 使用 for...of 遍历 entry.spelling（有界，不会无限循环）
+ * - 输入前断言状态为 PLAYING（排除 POLY_CHECK/EMPTY_LESSON 等异常态）
+ * - 每次 input() 后断言返回值非空且 correct（状态异常时立即失败）
+ *
+ * @param {PracticeSession} session 练习会话
+ * @returns {object} 最后一次 input 的结果（含 reward 信息，可用于检测小红花）
+ */
+function completeCurrentChar(session) {
+  expect(session.state, '输入前状态应为 PLAYING，可能误入 POLY_CHECK').toBe(PracticeState.PLAYING);
+  const entry = session.getCurrentEntry();
+  expect(entry, '当前应有可练汉字').not.toBeNull();
+  let lastResult = null;
+  for (const letter of entry.spelling) {
+    lastResult = session.input(letter);
+    expect(lastResult, 'input 返回 null 说明状态已离开 PLAYING，停止以防死循环').not.toBeNull();
+    expect(lastResult.correct, `输入字母 "${letter}" 应正确`).toBe(true);
+  }
+  return lastResult;
+}
+
+/**
+ * 连续完成前 n 个汉字（防死循环封装）。
+ * @param {PracticeSession} session 练习会话
+ * @param {number} n 要完成的汉字数
+ */
+function completeNChars(session, n) {
+  for (let i = 0; i < n; i++) {
+    completeCurrentChar(session);
+  }
+}
 
 describe('状态机 - 正常流程', () => {
   it('load 后应进入 PLAYING（无多音字）', () => {
@@ -51,10 +92,7 @@ describe('状态机 - 错误停留', () => {
     const s = new PracticeSession();
     s.load('妈你好他山');
     // 连对 3 个
-    for (let i = 0; i < 3; i++) {
-      const e = s.getCurrentEntry();
-      while (e.typedIndex < e.spelling.length) s.input(e.spelling[e.typedIndex]);
-    }
+    completeNChars(s, 3);
     expect(s.combo).toBe(3);
     // 错一次
     s.input('z');
@@ -78,11 +116,8 @@ describe('状态机 - 连击奖励', () => {
     s.load('妈你好他山');
     let gotFlower = false;
     for (let i = 0; i < 5; i++) {
-      const e = s.getCurrentEntry();
-      while (e.typedIndex < e.spelling.length) {
-        const r = s.input(e.spelling[e.typedIndex]);
-        if (r?.reward?.flower) gotFlower = true;
-      }
+      const result = completeCurrentChar(s);
+      if (result?.reward?.flower) gotFlower = true;
     }
     expect(gotFlower).toBe(true);
     expect(s.flowers).toBe(1);
@@ -91,13 +126,7 @@ describe('状态机 - 连击奖励', () => {
   it('连对 10 字应获得 2 朵小红花', () => {
     const s = new PracticeSession({ comboThreshold: 5 });
     s.load('妈你好他山水火土木天');
-    for (let i = 0; i < 10; i++) {
-      const e = s.getCurrentEntry();
-      while (e.typedIndex < e.spelling.length) {
-        const r = s.input(e.spelling[e.typedIndex]);
-        if (!r) break;
-      }
-    }
+    completeNChars(s, 10);
     expect(s.flowers).toBe(2);
   });
 });
@@ -156,8 +185,7 @@ describe('状态机 - 进度与统计', () => {
     s.load('一二三');
     expect(s.getProgress().percent).toBe(0);
     // 完成第一个字
-    const e = s.getCurrentEntry();
-    while (e.typedIndex < e.spelling.length) s.input(e.spelling[e.typedIndex]);
+    completeCurrentChar(s);
     expect(s.getProgress().percent).toBe(33);
   });
 
@@ -177,10 +205,7 @@ describe('状态机 - 进度与统计', () => {
     const s = new PracticeSession();
     s.load('一二三四五');
     // 完成前 2 个字
-    for (let i = 0; i < 2; i++) {
-      const e = s.getCurrentEntry();
-      while (e.typedIndex < e.spelling.length) s.input(e.spelling[e.typedIndex]);
-    }
+    completeNChars(s, 2);
     const saved = { charIndex: 2, stars: 2, flowers: 0, combo: 2 };
     // 新会话恢复
     const s2 = new PracticeSession();

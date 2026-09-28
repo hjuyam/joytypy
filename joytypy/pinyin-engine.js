@@ -8,6 +8,8 @@ const HANZI_RE = /[一-龥]/;
 const INLINE_RE = /([一-龥])\(([a-zA-Zvü]+)\)/g;
 // 头部映射表：文件首段 --- 包裹的 YAML 风格
 const HEADER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
+const SENTENCE_END_RE = /[。！？!?；;]/;
+const SOFT_BREAK_RE = /[，、,：:\n]/;
 
 // ü → v 统一（键盘无 ü 键，用 v 代替）
 function normalize(s) {
@@ -106,6 +108,32 @@ export function parseInlineMap(text) {
   return { map, cleaned };
 }
 
+/** 把课文划成可完整阅读的短句，位置使用练习序列的汉字索引。 */
+export function buildPassages(text) {
+  const passages = [];
+  let buffer = '';
+  let start = 0;
+  let hanziCount = 0;
+  const flush = () => {
+    const value = buffer.trim();
+    if (hanziCount > start) passages.push({ start, end: hanziCount, text: value });
+    else if (passages.length && value) passages[passages.length - 1].text += value;
+    buffer = '';
+    start = hanziCount;
+  };
+  for (const c of text) {
+    buffer += c;
+    if (HANZI_RE.test(c)) hanziCount++;
+    const length = hanziCount - start;
+    if (SENTENCE_END_RE.test(c)
+      || (c === '\n' && (length >= 14 || buffer.endsWith('\n\n')))
+      || (length >= 28 && SOFT_BREAK_RE.test(c))
+      || length >= 36) flush();
+  }
+  if (buffer.trim()) flush();
+  return passages;
+}
+
 /**
  * 构建练习序列（核心解析函数）
  * 覆盖优先级：行内标注 > 头部映射 > 校对面板结果(panelOverride) > 词典默认
@@ -122,21 +150,28 @@ export function parseInlineMap(text) {
 export function buildSequence(text, panelOverride = {}) {
   const { map: headerMap, rest: r1 } = parseHeaderMap(text);
   const { map: inlineMap, cleaned } = parseInlineMap(r1);
+  const inlineByIndex = {};
+  r1.replace(INLINE_RE, (_match, _char, py, offset) => {
+    inlineByIndex[[...r1.slice(0, offset)].filter(c => HANZI_RE.test(c)).length] = normalize(py);
+  });
+  const savedByIndex = panelOverride.byIndex || {};
+  const savedByChar = panelOverride.byChar || panelOverride;
 
   // 合并覆盖：panelOverride(低) → headerMap → inlineMap(高)
-  const merged = { ...panelOverride, ...headerMap, ...inlineMap };
+  const merged = { ...savedByChar, ...headerMap, ...inlineMap };
 
   // 提取汉字序列（过滤标点空白数字字母）
   const chars = [...cleaned].filter(c => HANZI_RE.test(c));
 
   // 生成练习序列
-  const entries = chars.map(char => {
-    const overrideSpelling = merged[char];
+  const entries = chars.map((char, index) => {
+    const overrideSpelling = inlineByIndex[index] || headerMap[char] || savedByIndex[index] || savedByChar[char];
     const spelling = overrideSpelling || toSpelling(char);
     // 被覆盖时展示覆盖音（去声调），否则用 pinyin-pro 带声调
     const toned = overrideSpelling ? overrideSpelling : toToned(char);
     return {
       char,
+      index,
       spelling,
       toned,
       typedIndex: 0,
@@ -147,21 +182,18 @@ export function buildSequence(text, panelOverride = {}) {
 
   // 检测多音字（仅未被手写覆盖的需要校对）
   const polyChars = [];
-  const seen = new Set();
-  for (const char of chars) {
-    if (seen.has(char)) continue;
-    seen.add(char);
+  for (const [index, char] of chars.entries()) {
     // 已被行内或头部覆盖的字无需校对
-    if (inlineMap[char] || headerMap[char]) continue;
+    if (inlineByIndex[index] || headerMap[char] || savedByIndex[index] || savedByChar[char]) continue;
     const candidates = detectPolyphonic(char);
     if (candidates.length > 1) {
       const candidatesToned = detectPolyphonicToned(char);
       // 默认预选词典首音（pinyin-pro 的默认音）
       const defaultSpelling = toSpelling(char);
       const defaultIdx = Math.max(0, candidates.indexOf(defaultSpelling));
-      polyChars.push({ char, candidates, candidatesToned, defaultIdx });
+      polyChars.push({ char, index, context: chars.slice(Math.max(0, index - 4), index + 5).join(''), candidates, candidatesToned, defaultIdx });
     }
   }
 
-  return { entries, polyChars, merged, charCount: chars.length, rawText: cleaned };
+  return { entries, polyChars, merged, charCount: chars.length, rawText: cleaned, passages: buildPassages(cleaned) };
 }

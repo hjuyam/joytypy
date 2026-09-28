@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="42" fill="#fff8ee"/>
+  <rect x="22" y="34" width="148" height="124" rx="22" fill="#ffbd59"/>
+  <rect x="36" y="48" width="120" height="96" rx="13" fill="#fff"/>
+  <text x="96" y="116" text-anchor="middle" font-size="69" font-family="sans-serif">乐</text>
+</svg>

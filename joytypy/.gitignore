@@ -3,6 +3,8 @@ server.pid
 
 # 依赖
 node_modules/
+dist/
+.vercel/
 
 # 系统
 .DS_Store

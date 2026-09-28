@@ -1,8 +1,7 @@
-# 开发准备文档（不纳入版本控制）
-*.md
-
 # 工具目录
 .workbuddy/
+.codebuddy/
+.playwright-cli/
 
 # macOS
 .DS_Store

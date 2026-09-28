@@ -1,7 +1,7 @@
 // 敲敲乐（JoyTypy）极简本地服务器
 // 零依赖，仅监听 127.0.0.1；托管静态文件 + /api/lessons 列表 + /api/lessons/:name 读文件 + /api/shutdown 优雅退出
 // 安全：路径穿越防护（decode + resolve + 前缀校验 + 文件名白名单）
-// 可靠：端口冲突自动重试（EADDRINUSE）、空闲 30 分钟自退
+// 固定端口，保证浏览器 localStorage 始终使用同一个 origin；空闲 30 分钟自退
 
 import http from 'http';
 import fs from 'fs';
@@ -12,7 +12,6 @@ import { fileURLToPath } from 'url';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const LESSONS_DIR = path.join(ROOT, 'lessons');
 const BASE_PORT = 5173;
-const MAX_PORT_RETRY = 5; // 端口冲突时尝试 PORT+1 ~ PORT+5
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -104,6 +103,8 @@ const server = http.createServer((req, res) => {
     return res.end('404');
   }
   res.setHeader('Content-Type', MIME[path.extname(fp)] || 'application/octet-stream');
+  // 禁止缓存：确保用户总是看到最新版本的文件（儿童场景：家长不会手动清缓存）
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.end(fs.readFileSync(fp));
 });
 
@@ -120,7 +121,12 @@ function openBrowser(url) {
   const cmd = process.platform === 'darwin' ? 'open'
     : process.platform === 'win32' ? 'start'
     : 'xdg-open';
-  try { spawn(cmd, [url]); } catch (e) {}
+  try {
+    const p = spawn(cmd, [url]);
+    p.on('error', () => console.error(`无法自动打开浏览器，请手动访问：${url}`));
+  } catch (e) {
+    console.error(`无法自动打开浏览器，请手动访问：${url}`);
+  }
 }
 
 // 空闲自退（儿童场景：防家长忘了关，留孤儿进程）
@@ -128,8 +134,8 @@ setInterval(() => {
   if (Date.now() - lastActive > IDLE_TIMEOUT) gracefulExit();
 }, 60 * 1000);
 
-// 端口冲突处理（Review T-2）：捕获 EADDRINUSE，自动尝试 PORT+1 ~ PORT+5
-function listen(port, retryCount) {
+// 端口是 localStorage 身份的一部分；占用时明确报错，避免新端口看似丢数据。
+function listen(port) {
   server.listen(port, '127.0.0.1', () => {
     fs.writeFileSync(path.join(ROOT, 'server.pid'), String(process.pid));
     console.log(`敲敲乐已启动： http://127.0.0.1:${port}`);
@@ -137,10 +143,9 @@ function listen(port, retryCount) {
   });
 
   server.once('error', (err) => {
-    if (err.code === 'EADDRINUSE' && retryCount < MAX_PORT_RETRY) {
-      console.log(`端口 ${port} 被占用，尝试 ${port + 1}...`);
-      server.removeAllListeners();
-      listen(port + 1, retryCount + 1);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`端口 ${port} 已被占用。请使用已打开的 http://127.0.0.1:${port}，或关闭占用该端口的程序后重试；不会改用其他端口，以免本机进度看似丢失。`);
+      process.exit(1);
     } else {
       console.error('无法启动服务器：', err.message);
       process.exit(1);
@@ -148,4 +153,4 @@ function listen(port, retryCount) {
   });
 }
 
-listen(BASE_PORT, 0);
+listen(BASE_PORT);

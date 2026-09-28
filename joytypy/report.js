@@ -1,110 +1,68 @@
-// 家长报告：聚合 progress/reward 数据，按周维度计算，支持导出
-// 调用方：app.js
-
-/** 计算给定时间戳所在自然周的周一日期键（YYYY-MM-DD） */
+// 家长报告：只用真实按键与单字记录计算正确率；旧进度没有练习记录时不推测正确率。
 export function getWeekKey(ts = Date.now()) {
   const d = new Date(ts); d.setHours(0,0,0,0);
   const day = d.getDay() || 7;
   d.setDate(d.getDate() - day + 1);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
+const percent = (good, total) => total ? Math.round(good / total * 100) : null;
 
-/**
- * 生成报告数据
- * @param {string} profileId
- * @param {object} store Store 接口（getProgress/getReward/getProfileIds 等）
- * @param {Array} lessons 课文列表 [{ id, title, charCount }]
- * @returns {{ weekChars, weekCompletion, weekAccuracy, trend: [{label, accuracy}], totalStars, totalFlowers, badges }}
- */
-export function generateReport(profileId, store, lessons = []) {
+export function generateReport(profileId, store, lessons = [], now = Date.now()) {
   const reward = store.getReward(profileId);
-  const weekKey = getWeekKey();
+  const weekKey = getWeekKey(now);
+  const activities = store.getActivities(profileId);
+  const weekly = activities.filter(a => getWeekKey(a.at) === weekKey);
+  const sums = weekly.reduce((s, a) => {
+    s.chars += a.completedChars || 0;
+    s.first += a.firstTryChars || 0;
+    s.keys += a.correctKeys || 0;
+    s.wrong += a.wrongKeys || 0;
+    return s;
+  }, { chars: 0, first: 0, keys: 0, wrong: 0 });
 
-  // 本周概览
-  const weekChars = reward.weekly?.[weekKey] || 0;
+  const progress = lessons.map(lesson => {
+    if (!lesson.charCount) return { title: lesson.title, completion: null };
+    const entries = ['key', 'pinyin', 'reading'].map(mode => store.getProgress(profileId, lesson.id, mode)).filter(Boolean);
+    const best = entries.length ? Math.max(...entries.map(p => p.completed ? 100 : Math.min(100, Math.round((p.charIndex || 0) / lesson.charCount * 100)))) : null;
+    return { title: lesson.title, completion: best };
+  }).filter(p => p.completion !== null);
+  const weekCompletion = progress.length ? Math.round(progress.reduce((sum, p) => sum + p.completion, 0) / progress.length) : null;
 
-  // 遍历该 profile 所有 progress，计算完成率与正确率
-  let totalCompletion = 0, completionCount = 0;
-  let totalAccuracy = 0, accuracyCount = 0;
-  const trendMap = {}; // { weekKey: { correct, errors } }
-
-  // 从 localStorage 直接读取（store 不暴露遍历，这里用全局 localStorage）
-  const prefix = `progress:${profileId}:`;
-  const allKeys = Object.keys(localStorage).filter(k => k.startsWith(prefix));
-  for (const key of allKeys) {
-    try {
-      const p = JSON.parse(localStorage.getItem(key));
-      if (!p || p.v !== 1) continue;
-      const lessonId = key.slice(prefix.length);
-      const lesson = lessons.find(l => l.id === lessonId);
-      if (lesson && lesson.charCount > 0) {
-        const pct = p.completed ? 100 : Math.round((p.charIndex / lesson.charCount) * 100);
-        totalCompletion += pct; completionCount++;
-      }
-      // 正确率无法从 progress 直接得到（progress 不存 errors），用星星/字数近似
-      // 这里用完成率作为趋势的近似指标
-      const wk = getWeekKey(p.lastAt || Date.now());
-      if (!trendMap[wk]) trendMap[wk] = { sum: 0, count: 0 };
-      const pct = lesson && lesson.charCount > 0 ? (p.completed ? 100 : Math.round((p.charIndex / lesson.charCount) * 100)) : 0;
-      trendMap[wk].sum += pct; trendMap[wk].count++;
-    } catch {}
-  }
-
-  const weekCompletion = completionCount > 0 ? Math.round(totalCompletion / completionCount) : 0;
-  const weekAccuracy = accuracyCount > 0 ? Math.round(totalAccuracy / accuracyCount) : weekCompletion;
-
-  // 趋势：最近 4 周
   const trend = [];
-  const now = new Date();
   for (let i = 3; i >= 0; i--) {
     const d = new Date(now); d.setDate(d.getDate() - i * 7);
     const wk = getWeekKey(d.getTime());
-    const t = trendMap[wk];
-    const label = `${d.getMonth()+1}/${d.getDate()}`;
-    const accuracy = t && t.count > 0 ? Math.round(t.sum / t.count) : 0;
-    trend.push({ label, accuracy });
+    const rows = activities.filter(a => getWeekKey(a.at) === wk);
+    const correct = rows.reduce((n, a) => n + (a.correctKeys || 0), 0);
+    const wrong = rows.reduce((n, a) => n + (a.wrongKeys || 0), 0);
+    trend.push({ label: wk.slice(5).replace('-', '/'), accuracy: percent(correct, correct + wrong) });
   }
-
   return {
-    weekChars,
+    weekChars: sums.chars,
     weekCompletion,
-    weekAccuracy,
-    trend,
-    totalStars: reward.totalStars,
-    totalFlowers: reward.totalFlowers,
-    badges: reward.badges || [],
+    weekKeyAccuracy: percent(sums.keys, sums.keys + sums.wrong),
+    weekFirstTryAccuracy: percent(sums.first, sums.chars),
+    trend, progress,
+    totalStars: reward.totalStars, totalFlowers: reward.totalFlowers, badges: reward.badges || [],
   };
 }
 
-/**
- * 导出报告为纯文本
- */
+const displayPercent = value => value === null ? '暂无记录' : `${value}%`;
 export function exportReport(profile, data) {
-  const lines = [];
-  lines.push('=================================');
-  lines.push('       敲敲乐 · 家长报告');
-  lines.push('=================================');
-  lines.push(`小朋友：${profile.name} ${profile.avatar}`);
-  lines.push(`生成时间：${new Date().toLocaleString('zh-CN')}`);
-  lines.push('');
-  lines.push('【本周概览】');
-  lines.push(`  练习汉字数：${data.weekChars}`);
-  lines.push(`  平均完成率：${data.weekCompletion}%`);
-  lines.push(`  平均正确率：${data.weekAccuracy}%`);
-  lines.push('');
-  lines.push('【正确率趋势】');
-  for (const t of data.trend) {
-    lines.push(`  ${t.label}：${t.accuracy}%`);
-  }
-  lines.push('');
-  lines.push('【累计奖励】');
-  lines.push(`  ⭐ 星星：${data.totalStars}`);
-  lines.push(`  🌸 小红花：${data.totalFlowers}`);
-  lines.push(`  🏅 徽章：${data.badges.length} 个`);
-  for (const b of data.badges) {
-    lines.push(`    - ${b.icon} ${b.title}`);
-  }
-  lines.push('');
-  lines.push('=================================');
+  const lines = [
+    '敲敲乐 · 家长报告',
+    `小朋友：${profile.name} ${profile.avatar}`,
+    `生成时间：${new Date().toLocaleString('zh-CN')}`,
+    '', '【本周练习】',
+    `练习汉字数：${data.weekChars}`,
+    `按键正确率：${displayPercent(data.weekKeyAccuracy)}`,
+    `单字首次敲对率：${displayPercent(data.weekFirstTryAccuracy)}`,
+    '', '【课文完成率】',
+    ...data.progress.map(p => `${p.title}：${p.completion}%`),
+    '', '【按键正确率趋势】',
+    ...data.trend.map(t => `${t.label}：${displayPercent(t.accuracy)}`),
+    '', `累计星星：${data.totalStars}`, `累计小红花：${data.totalFlowers}`,
+    `徽章：${data.badges.length} 个`, ...data.badges.map(b => `${b.icon} ${b.title}`),
+  ];
   return lines.join('\n');
 }
