@@ -1,5 +1,5 @@
 // 只缓存同源应用文件与内置课文。档案和导入课文保留在页面的本地存储中。
-const CACHE_NAME = 'joytypy-offline-v3';
+const CACHE_NAME = 'joytypy-offline-v4';
 const FILES = [
   './', './index.html', './style.css', './app.js', './practice.js',
   './pinyin-engine.js', './keyboard.js', './report.js', './accounting.js',

@@ -411,7 +411,9 @@ class App {
     for (const lesson of this.lessons) {
       const progress = pid ? Store.getProgress(pid, lesson.id, Store.getSettings(pid).defaultMode) : null;
       const pct = progress?.completed ? 100 : (progress && lesson.charCount ? Math.round((progress.charIndex / lesson.charCount) * 100) : 0);
-      const card = el('div', 'lesson-card');
+      const card = el('button', 'lesson-card');
+      card.type = 'button';
+      card.setAttribute('aria-label', `练习${lesson.title}，${pct}% 已完成`);
       card.innerHTML = `
         <div class="lesson-progress-ring" style="--p:${pct}">
           <span class="ring-num">${pct}%</span>

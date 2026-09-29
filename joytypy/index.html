@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="敲敲乐 - 小学拼音打字练习">
-  <meta name="theme-color" content="#fff8ee">
+  <meta name="theme-color" content="#f7f4ed">
   <title>敲敲乐 · 拼音打字练习</title>
-  <link rel="icon" href="data:,">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -15,7 +15,7 @@
     <!-- 顶部导航栏（全局） -->
     <header class="topbar" id="topbar">
       <div class="topbar-left">
-        <span class="logo" title="敲敲乐">🎹 敲敲乐</span>
+        <span class="logo" title="敲敲乐"><span class="logo-mark" aria-hidden="true">敲</span><span class="logo-text">敲敲乐<small>JOY TYPY</small></span></span>
       </div>
       <div class="topbar-center" id="topbar-progress" hidden>
         <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
@@ -27,25 +27,42 @@
           <span id="current-avatar">😊</span>
           <span id="current-name">小朋友</span>
         </button>
-        <button class="icon-btn" id="settings-btn" title="设置">⚙️</button>
+        <button class="icon-btn settings-icon-btn" id="settings-btn" title="设置" aria-label="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2 2-.06-.06A1.7 1.7 0 0 0 15.9 18.5l-.36.2a1.7 1.7 0 0 0-.86 1.48V21h-2.83v-.82a1.7 1.7 0 0 0-.86-1.48l-.36-.2a1.7 1.7 0 0 0-1.84.37l-.06.06-2-2 .06-.06A1.7 1.7 0 0 0 7.13 15l-.2-.36a1.7 1.7 0 0 0-1.48-.86H4.6v-2.83h.85a1.7 1.7 0 0 0 1.48-.86l.2-.36a1.7 1.7 0 0 0-.34-1.87l-.06-.06 2-2 .06.06a1.7 1.7 0 0 0 1.84.37l.36-.2a1.7 1.7 0 0 0 .86-1.48V3.7h2.83v.82a1.7 1.7 0 0 0 .86 1.48l.36.2a1.7 1.7 0 0 0 1.84-.37l.06-.06 2 2-.06.06A1.7 1.7 0 0 0 19.4 9.7l.2.36a1.7 1.7 0 0 0 1.48.86h.82v2.83h-.82a1.7 1.7 0 0 0-1.48.86z"/></svg>
+        </button>
       </div>
     </header>
 
     <main id="view-container">
       <!-- ============ 首页 #/home ============ -->
       <section class="view" id="view-home" data-route="home">
+        <div class="home-hero">
+          <div class="hero-copy">
+            <span class="eyebrow"><span class="eyebrow-dot"></span> 写给小小探索家的每日练习</span>
+            <h1>把诗句，<br>敲成自己的节奏<span class="title-period">。</span></h1>
+            <p>读一读，敲一敲。让每个汉字与键盘上的字母，慢慢变得熟悉。</p>
+            <span class="hero-cue">从下面选一篇课文开始 <span aria-hidden="true">↘</span></span>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <div class="art-sun"></div>
+            <div class="art-paper"><span>春眠不觉晓</span><span>处处闻啼鸟</span><i></i><i></i></div>
+            <div class="art-key art-key-a">A</div>
+            <div class="art-key art-key-b">B</div>
+            <div class="art-spark art-spark-one">✳</div>
+            <div class="art-spark art-spark-two">✳</div>
+          </div>
+        </div>
         <!-- 档案切换区 -->
-        <div class="section">
-          <h2 class="section-title">选择小朋友</h2>
-          <div class="profile-list" id="profile-list"></div>
-          <button class="btn btn-outline" id="add-profile-btn">➕ 新建档案</button>
+        <div class="section home-profiles">
+          <div class="section-heading"><div><span class="section-kicker">01 / WHO'S PLAYING</span><h2 class="section-title">今天谁来练习？</h2></div></div>
+          <div class="profile-content"><div class="profile-list" id="profile-list"></div><button class="btn btn-outline" id="add-profile-btn"><span aria-hidden="true">＋</span> 新建档案</button></div>
         </div>
 
         <!-- 课文列表区 -->
-        <div class="section">
-          <h2 class="section-title">选择课文</h2>
+        <div class="section home-lessons">
+          <div class="section-heading"><div><span class="section-kicker">02 / PICK A STORY</span><h2 class="section-title">选一篇，开始敲</h2></div><span class="heading-decoration" aria-hidden="true">✳</span></div>
           <div class="lesson-tools">
-            <button class="btn btn-outline" id="import-lessons-btn">📥 导入课文</button>
+            <button class="btn btn-outline" id="import-lessons-btn"><span aria-hidden="true">↓</span> 导入课文</button>
             <span class="lesson-tools-hint">支持 .txt、.md，可一次选择多篇；课文只保存在当前浏览器</span>
             <input id="lesson-files" type="file" accept=".txt,.md,text/plain,text/markdown" multiple hidden>
           </div>
@@ -55,8 +72,8 @@
         </div>
 
         <!-- 成就墙预览 -->
-        <div class="section">
-          <h2 class="section-title">我的成就</h2>
+        <div class="section home-achievements">
+          <div class="section-heading"><div><span class="section-kicker">03 / LITTLE WINS</span><h2 class="section-title">每一步都算数</h2></div></div>
           <div class="achievement-preview" id="achievement-preview">
             <div class="ach-card"><span class="ach-icon">⭐</span><span class="ach-num" id="total-stars">0</span><span class="ach-label">星星</span></div>
             <div class="ach-card"><span class="ach-icon">🌸</span><span class="ach-num" id="total-flowers">0</span><span class="ach-label">小红花</span></div>
@@ -175,9 +192,9 @@
 
     <!-- 底部导航 -->
     <nav class="bottom-nav" id="bottom-nav">
-      <button class="nav-btn active" data-route="home">🏠<span>首页</span></button>
-      <button class="nav-btn" data-route="report">📊<span>报告</span></button>
-      <button class="nav-btn" data-route="settings">⚙️<span>设置</span></button>
+      <button class="nav-btn active" data-route="home" aria-label="首页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>首页</span></button>
+      <button class="nav-btn" data-route="report" aria-label="报告"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M7 16v-4m5 4V8m5 8v-6"/></svg><span>报告</span></button>
+      <button class="nav-btn" data-route="settings" aria-label="设置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2 2-.06-.06A1.7 1.7 0 0 0 15.9 18.5l-.36.2a1.7 1.7 0 0 0-.86 1.48V21h-2.83v-.82a1.7 1.7 0 0 0-.86-1.48l-.36-.2a1.7 1.7 0 0 0-1.84.37l-.06.06-2-2 .06-.06A1.7 1.7 0 0 0 7.13 15l-.2-.36a1.7 1.7 0 0 0-1.48-.86H4.6v-2.83h.85a1.7 1.7 0 0 0 1.48-.86l.2-.36a1.7 1.7 0 0 0-.34-1.87l-.06-.06 2-2 .06.06a1.7 1.7 0 0 0 1.84.37l.36-.2a1.7 1.7 0 0 0 .86-1.48V3.7h2.83v.82a1.7 1.7 0 0 0 .86 1.48l.36.2a1.7 1.7 0 0 0 1.84-.37l.06-.06 2 2-.06.06A1.7 1.7 0 0 0 19.4 9.7l.2.36a1.7 1.7 0 0 0 1.48.86h.82v2.83h-.82a1.7 1.7 0 0 0-1.48.86z"/></svg><span>设置</span></button>
     </nav>
   </div>
 
